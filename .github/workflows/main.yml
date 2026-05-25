@@ -1,11 +1,9 @@
 name: RE4 Pak Auto Extractor
 
 on:
-  # Triggers immediately whenever you upload or change ANY file in the repository
   push:
     branches:
       - main
-  # Keeps the manual run button active just in case
   workflow_dispatch:
 
 jobs:
@@ -19,17 +17,26 @@ jobs:
     - name: 2. Download and Setup REE Unpacker Tool
       shell: powershell
       run: |
-        Write-Host "Fetching Ekey's REE.PAK.Tool..."
-        Invoke-WebRequest -Uri "https://github.com/Ekey/REE.PAK.Tool/releases/latest/download/REE.PAK.Tool.zip" -OutFile "tool.zip"
+        Write-Host "Fetching REE Unpacker Tool..."
+        
+        # Using a reliable direct link structure for the tool binary
+        $Url = "https://github.com/Ekey/REE.PAK.Tool/releases/download/1.0.6/REE.PAK.Tool.zip"
+        
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile "tool.zip" -UserAgent "Mozilla/5.0"
+        } catch {
+            Write-Host "Primary download failed, attempting backup compilation..."
+            # Fallback download url if version tags changed
+            $Url = "https://github.com/Ekey/REE.PAK.Tool/archive/refs/heads/main.zip"
+            Invoke-WebRequest -Uri $Url -OutFile "tool.zip"
+        }
         
         Write-Host "Extracting tool..."
-        Expand-Archive -Path "tool.zip" -DestinationPath ".\UnpackerTool"
+        Expand-Archive -Path "tool.zip" -DestinationPath ".\UnpackerTool" -Force
         
-        if (Test-Path ".\UnpackerTool\REE.Unpacker.exe") {
-            Write-Host "Success: Unpacker executable is ready."
-        } else {
-            Write-Error "Failed to ready the extraction tool."
-            exit 1
+        # Flatten directories if nested inside zip
+        if (Test-Path ".\UnpackerTool\REE.PAK.Tool-main") {
+            Move-Item ".\UnpackerTool\REE.PAK.Tool-main\*" ".\UnpackerTool\" -Force
         }
 
     - name: 3. Verify Pak File and Run Extraction
@@ -38,12 +45,20 @@ jobs:
         # Search the entire repository for the .pak file automatically
         $PakFile = Get-ChildItem -Recurse -Filter "re_chunk_000.pak" | Select-Object -First 1
         
+        # Locate the executable wherever it unzipped
+        $ToolExe = Get-ChildItem -Recurse -Filter "REE.Unpacker.exe" | Select-Object -First 1
+        
+        if (-not $ToolExe) {
+            Write-Error "CRITICAL ERROR: REE.Unpacker.exe was not successfully downloaded or compiled!"
+            exit 1
+        }
+        
         if ($PakFile) {
             Write-Host "Found target file at: $($PakFile.FullName)"
             New-Item -ItemType Directory -Force -Path ".\Extracted_Output"
             
-            Write-Host "Launching extraction... Please wait."
-            & ".\UnpackerTool\REE.Unpacker.exe" "RE4_STM_Release" "$($PakFile.FullName)" ".\Extracted_Output"
+            Write-Host "Launching extraction via $($ToolExe.FullName)... Please wait."
+            & "$($ToolExe.FullName)" "RE4_STM_Release" "$($PakFile.FullName)" ".\Extracted_Output"
         } else {
             Write-Error "CRITICAL ERROR: re_chunk_000.pak was not found anywhere in your GitHub repository! Please upload it."
             exit 1
