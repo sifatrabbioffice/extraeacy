@@ -1,34 +1,4 @@
-name: Download, Extract, and Upload IPA
-
-on:
-  push:
-  workflow_dispatch:
-
-jobs:
-  process-file:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    # 1. Download the IPA
-    - name: Download IPA file
-      run: |
-        curl -L -o app.ipa "https://github.com/Doann7457/tai-ipa/releases/download/jp.co.capcom.RE4US-6462360082-863325402/jp.co.capcom.RE4US-1.0.2-6462360082-863325402.ipa"
-
-    # 2. Extract it
-    - name: Extract IPA
-      run: |
-        mkdir -p extracted_ipa
-        unzip app.ipa -d extracted_ipa/
-        rm app.ipa
-
-
-
-
-
-name: RE4 Pak Auto Extractor
+name: RE4 Pak Auto Extractor Pipeline
 
 on:
   push:
@@ -37,23 +7,52 @@ on:
   workflow_dispatch:
 
 jobs:
+  # JOB 1: Download and Extract the IPA on Linux
+  download-and-extract-ipa:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download IPA file
+      run: |
+        curl -L -o app.ipa "https://github.com/Doann7457/tai-ipa/releases/download/jp.co.capcom.RE4US-6462360082-863325402/jp.co.capcom.RE4US-1.0.2-6462360082-863325402.ipa"
+
+    - name: Extract IPA
+      run: |
+        mkdir -p extracted_ipa
+        unzip app.ipa -d extracted_ipa/
+        
+    - name: Upload Raw Extracted IPA for Job 2
+      uses: actions/upload-artifact@v4
+      with:
+        name: raw-extracted-ipa
+        path: extracted_ipa/
+        retention-days: 1
+
+  # JOB 2: Processes the Pak using Windows REtool
   unpack_process:
+    needs: download-and-extract-ipa
     runs-on: windows-latest
 
     steps:
     - name: 1. Pull Code From Repository
       uses: actions/checkout@v4
 
-    - name: 2. Download FluffyQuack REtool
+    - name: 2. Download Extracted IPA from Job 1
+      uses: actions/download-artifact@v4
+      with:
+        name: raw-extracted-ipa
+        path: .\extracted_ipa
+
+    - name: 3. Download FluffyQuack REtool
       shell: powershell
       run: |
         Write-Host "Downloading compiled REtool..."
-        # Pulls the stable compiled executable directly from FluffyQuack's server
         Invoke-WebRequest -Uri "http://www.fluffyquack.com/tools/REtool.rar" -OutFile "REtool.rar"
         
         Write-Host "Extracting RAR package..."
-        # Windows-latest runner has 7z built-in to handle .rar files easily
-        7z x REtool.rar -o"Utils"
+        7z x REtool.rar -o"Utils" -y
         
         if (Test-Path ".\Utils\retool.exe") {
             Write-Host "Success: retool.exe is compiled and ready."
@@ -62,10 +61,10 @@ jobs:
             exit 1
         }
 
-    - name: 3. Verify Pak File and Run Extraction
+    - name: 4. Verify Pak File and Run Extraction
       shell: powershell
       run: |
-        # Locate the uploaded game archive in your repo
+        # Look inside the downloaded IPA folder or the repo root for the .pak file
         $PakFile = Get-ChildItem -Recurse -Filter "re_chunk_000.pak" | Select-Object -First 1
         
         if ($PakFile) {
@@ -73,14 +72,13 @@ jobs:
             New-Item -ItemType Directory -Force -Path ".\Extracted_Output"
             
             Write-Host "Launching extraction via FluffyQuack REtool... This will take some time."
-            # Fluffy's syntax: retool.exe -re4 -extract [pak_file_path] [out_dir_path]
             & ".\Utils\retool.exe" -re4 -extract "$($PakFile.FullName)" ".\Extracted_Output"
         } else {
-            Write-Error "CRITICAL ERROR: re_chunk_000.pak was not found anywhere in your GitHub repository! Please upload it."
+            Write-Error "CRITICAL ERROR: re_chunk_000.pak was not found anywhere (Repo or Extracted IPA)! Please check the file path."
             exit 1
         }
 
-    - name: 4. Package and Save Extracted Assets
+    - name: 5. Package and Save Extracted Assets
       uses: actions/upload-artifact@v4
       with:
         name: Extracted-RE4-Assets
