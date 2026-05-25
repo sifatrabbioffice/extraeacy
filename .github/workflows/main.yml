@@ -1,3 +1,33 @@
+name: Download, Extract, and Upload IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  process-file:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 1. Download the IPA
+    - name: Download IPA file
+      run: |
+        curl -L -o app.ipa "https://github.com/Doann7457/tai-ipa/releases/download/jp.co.capcom.RE4US-6462360082-863325402/jp.co.capcom.RE4US-1.0.2-6462360082-863325402.ipa"
+
+    # 2. Extract it
+    - name: Extract IPA
+      run: |
+        mkdir -p extracted_ipa
+        unzip app.ipa -d extracted_ipa/
+        rm app.ipa
+
+
+
+
+
 name: RE4 Pak Auto Extractor
 
 on:
