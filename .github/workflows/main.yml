@@ -1,57 +1,57 @@
-name: Upload and Extract RE4 Pak
+name: RE4 Pak Auto Extractor
 
 on:
-  # Triggers the workflow manually via the GitHub UI
-  workflow_dispatch:
-  # Or triggers automatically when a new release/artifact is uploaded
+  # Triggers immediately whenever you upload or change ANY file in the repository
   push:
     branches:
       - main
-    paths:
-      - '**.pak' # Runs if a .pak file is pushed directly to the repo
+  # Keeps the manual run button active just in case
+  workflow_dispatch:
 
 jobs:
-  extract_pak_job:
-    runs-on: windows-latest # REE.PAK.Tool runs natively on Windows
+  unpack_process:
+    runs-on: windows-latest
 
     steps:
-    - name: Checkout Repository Code
+    - name: 1. Pull Code From Repository
       uses: actions/checkout@v4
 
-    - name: Download REE.PAK.Tool
+    - name: 2. Download and Setup REE Unpacker Tool
       shell: powershell
       run: |
-        # Downloads Ekey's REE.PAK.Tool from GitHub releases
-        Invoke-WebRequest -Uri "https://github.com/Ekey/REE.PAK.Tool/releases/latest/download/REE.PAK.Tool.zip" -OutFile "REE.PAK.Tool.zip"
-        Expand-Archive -Path "REE.PAK.Tool.zip" -DestinationPath ".\PakTool"
-        echo "Tool downloaded and extracted successfully."
-
-    - name: Create Extraction Destination Directory
-      shell: powershell
-      run: |
-        New-Item -ItemType Directory -Force -Path ".\Extracted_Files"
-
-    - name: Execute Extraction Command
-      shell: powershell
-      run: |
-        # Define paths (Adjust 're_chunk_000.pak' if it's inside a subfolder)
-        $ToolPath = ".\PakTool\REE.Unpacker.exe"
-        $PakFile = ".\re_chunk_000.pak"
-        $OutputDir = ".\Extracted_Files"
+        Write-Host "Fetching Ekey's REE.PAK.Tool..."
+        Invoke-WebRequest -Uri "https://github.com/Ekey/REE.PAK.Tool/releases/latest/download/REE.PAK.Tool.zip" -OutFile "tool.zip"
         
-        # Verify the file exists before running
-        if (Test-Path $PakFile) {
-            Write-Host "Found PAK file. Starting extraction..."
-            # Runs the tool using the RE4 Steam Release configuration list
-            Start-Process -FilePath $ToolPath -ArgumentList '"RE4_STM_Release"', "`"$PakFile`"", "`"$OutputDir`"" -Wait -NoNewWindow
+        Write-Host "Extracting tool..."
+        Expand-Archive -Path "tool.zip" -DestinationPath ".\UnpackerTool"
+        
+        if (Test-Path ".\UnpackerTool\REE.Unpacker.exe") {
+            Write-Host "Success: Unpacker executable is ready."
         } else {
-            Write-Error "Error: re_chunk_000.pak not found in the root repository folder!"
+            Write-Error "Failed to ready the extraction tool."
             exit 1
         }
 
-    - name: Upload Extracted Files as GitHub Artifacts
+    - name: 3. Verify Pak File and Run Extraction
+      shell: powershell
+      run: |
+        # Search the entire repository for the .pak file automatically
+        $PakFile = Get-ChildItem -Recurse -Filter "re_chunk_000.pak" | Select-Object -First 1
+        
+        if ($PakFile) {
+            Write-Host "Found target file at: $($PakFile.FullName)"
+            New-Item -ItemType Directory -Force -Path ".\Extracted_Output"
+            
+            Write-Host "Launching extraction... Please wait."
+            & ".\UnpackerTool\REE.Unpacker.exe" "RE4_STM_Release" "$($PakFile.FullName)" ".\Extracted_Output"
+        } else {
+            Write-Error "CRITICAL ERROR: re_chunk_000.pak was not found anywhere in your GitHub repository! Please upload it."
+            exit 1
+        }
+
+    - name: 4. Package and Save Extracted Assets
       uses: actions/upload-artifact@v4
       with:
-        name: RE4-Extracted-Assets
-        path: .\Extracted_Files/
-        retention-days: 5 # Deletes automatically after 5 days to save space
+        name: Extracted-RE4-Assets
+        path: .\Extracted_Output\
+        retention-days: 3
